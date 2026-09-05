@@ -1,0 +1,275 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Phase 3: Primitives & Global Helpers
+    function isSignedIn() { return request.auth != null; }
+    function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
+    function isValidId(id) { return id is string && id.size() <= 128; }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    
+        // Hardened isSeller helper
+    function isAdmin() {
+      return isSignedIn() && (
+        (request.auth.token.get('email', null) != null && (
+          request.auth.token.email == 'mahmoudmasry165@gmail.com' ||
+          request.auth.token.email == '201115454823@seven.store' ||
+          request.auth.token.email == '01115454823@seven.store'
+        )) ||
+        (request.auth.token.get('phone_number', null) != null && (
+          request.auth.token.phone_number == '+201115454823' ||
+          request.auth.token.phone_number == '201115454823' ||
+          request.auth.token.phone_number == '+01115454823' ||
+          request.auth.token.phone_number == '01115454823'
+        )) ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') == 'admin')
+      );
+    }
+    
+    function isRoleSeller() {
+      return isSignedIn() && (
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') == 'seller'
+      );
+    }
+
+    // 1. User Profiles
+    function isValidUser(data) {
+      return data.name is string && data.name.size() >= 2 && data.name.size() <= 100 &&
+             data.role in ['buyer', 'seller', 'admin'] &&
+             (data.get('address', null) == null || data.address is map) &&
+             (data.get('storeName', null) == null || data.storeName is string) &&
+             (data.get('email', null) == null || data.email is string) &&
+             (data.get('phoneNumber', '') is string);
+    }
+
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow list: if isSignedIn();
+      allow create: if isValidId(userId) && isOwner(userId) && isValidUser(incoming()) && 
+                      incoming().createdAt == request.time;
+      allow update: if isValidId(userId) && (isAdmin() || (isOwner(userId) && incoming().role == existing().role)) &&
+                      incoming().diff(existing()).affectedKeys().hasOnly(['name', 'address', 'items', 'updatedAt', 'storeName', 'storeLogo', 'phoneNumber', 'role', 'password', 'pushSubscription', 'email']);
+      allow delete: if isAdmin();
+    }
+
+    // 2. Products
+    function isValidProduct(data) {
+      return data.name is string && data.name.size() > 0 && data.name.size() <= 200 &&
+             data.price is number && data.price >= 0 &&
+             data.quantity is number && data.quantity >= 0 &&
+             data.imageUrl is string && data.imageUrl.size() <= 1048576 &&
+             (data.get('category', '') is string) &&
+             (data.get('description', '') is string) &&
+             (data.get('sellerId', '') is string) &&
+             (data.get('storeName', null) == null || data.storeName is string) &&
+             (data.get('sellerRole', '') is string) &&
+             (data.get('videoUrl', '') is string) &&
+             (data.get('colors', []) is list) &&
+             (data.get('sizes', []) is list) &&
+             (data.get('images', []) is list) &&
+             (data.get('isActive', true) is bool);
+    }
+
+    match /products/{productId} {
+      allow read: if true;
+      allow create: if isValidId(productId) && (isAdmin() || (isRoleSeller() && incoming().sellerId == request.auth.uid)) && isValidProduct(incoming()) && 
+                      incoming().sellerId == request.auth.uid &&
+                      incoming().createdAt == request.time;
+      allow update: if isValidId(productId) && (isAdmin() || (isRoleSeller() && existing().sellerId == request.auth.uid)) &&
+                      incoming().sellerId == existing().sellerId &&
+                      incoming().diff(existing()).affectedKeys().hasOnly(['name', 'price', 'quantity', 'imageUrl', 'category', 'description', 'updatedAt', 'colors', 'sizes', 'images', 'order', 'videoUrl', 'isActive', 'storeName', 'sellerRole', 'storeLogo', 'sellerId']) &&
+                      (incoming().get('updatedAt', null) == null || incoming().updatedAt == request.time);
+      allow delete: if isValidId(productId) && (isAdmin() || (isRoleSeller() && existing().sellerId == request.auth.uid));
+    }
+
+    // 6. Orders
+    function isValidOrder(data) {
+      return data.userId is string &&
+             data.totalPrice is number && data.totalPrice >= 0 &&
+             data.items is list && data.items.size() > 0 &&
+             data.status in ['pending', 'awaiting_verification', 'paid', 'delivered', 'canceled'] &&
+             data.paymentMethod in ['instapay', 'wallet', 'cod'] &&
+             data.sellerIds is list &&
+             (data.get('rejectionReason', null) == null || data.rejectionReason is string) &&
+             (data.get('sellerDeleted', false) is bool) &&
+             (data.get('buyerDeleted', false) is bool);
+    }
+    
+    match /orders/{orderId} {
+      allow get: if isAdmin() || (isRoleSeller() && (request.auth.uid in resource.data.get('sellerIds', []))) || (isSignedIn() && resource.data.get('userId', '') == request.auth.uid);
+      allow list: if isAdmin() || (isRoleSeller() && (request.auth.uid in resource.data.get('sellerIds', []))) || (isSignedIn() && resource.data.get('userId', '') == request.auth.uid);
+      allow create: if isSignedIn() && isValidOrder(incoming()) && incoming().createdAt == request.time;
+      allow update: if isAdmin() || (isRoleSeller() && (request.auth.uid in existing().get('sellerIds', [])));
+      allow update: if isSignedIn() && isOwner(resource.data.get('userId', '')) && 
+                      (
+                        // Action: Mark as Paid
+                        (incoming().get('status', '') == 'paid' && (existing().get('status', '') == 'pending' || existing().get('status', '') == 'awaiting_verification') && incoming().diff(existing()).affectedKeys().hasOnly(['status'])) ||
+                        // Action: Soft delete by buyer
+                        (incoming().diff(existing()).affectedKeys().hasOnly(['buyerDeleted', 'updatedAt']) && (incoming().get('updatedAt', null) == null || incoming().updatedAt == request.time))
+                      );
+      allow delete: if isAdmin() || (isSignedIn() && isOwner(resource.data.get('userId', '')));
+    }
+
+    // 7. Product Reviews
+    function isValidReview(data) {
+      return data.productId is string &&
+             data.userId == request.auth.uid &&
+             data.rating is number && data.rating >= 1 && data.rating <= 5 &&
+             data.comment is string && data.comment.size() <= 1000 &&
+             data.userName is string;
+    }
+    match /reviews/{reviewId} {
+      allow read: if true;
+      allow create: if isValidId(reviewId) && isSignedIn() && isValidReview(incoming()) && incoming().createdAt == request.time;
+      allow update: if isValidId(reviewId) && isOwner(resource.data.get('userId', '')) && isValidReview(incoming()) && 
+                      incoming().diff(existing()).affectedKeys().hasOnly(['rating', 'comment', 'userName']) &&
+                      incoming().createdAt == existing().createdAt;
+      allow delete: if isValidId(reviewId) && (isOwner(resource.data.get('userId', '')) || isAdmin());
+    }
+
+    // Support collections
+    match /categories/{catId} {
+      allow read: if true;
+      allow create: if isAdmin() || (isRoleSeller() && incoming().sellerId == request.auth.uid);
+      allow update, delete: if isAdmin() || (isRoleSeller() && resource.data.sellerId == request.auth.uid);
+    }
+    match /carts/{userId} {
+      allow read, write: if isOwner(userId) || isAdmin() || isRoleSeller();
+    }
+    match /users_lookup/{phone} {
+      allow read: if true;
+      allow create: if isSignedIn();
+    }
+    match /test/connection {
+      allow read: if true;
+    }
+
+    // 13. Public Stats (Store Dashboard)
+    match /public_stats/{docId} {
+      allow read: if true;
+      allow write: if isAdmin() || isRoleSeller();
+    }
+
+    // 8. Chats
+    function isValidChat(data) {
+      return (data.get('participants', []) is list) &&
+             (data.get('buyerId', '') is string) &&
+             (data.get('sellerId', '') is string) &&
+             (data.get('buyerName', '') is string) &&
+             (data.get('lastMessage', '') is string) &&
+             (data.get('unreadCount', 0) is number) &&
+             (data.get('buyerUnreadCount', 0) is number) &&
+             (data.get('sellerUnreadCount', 0) is number) &&
+             (data.get('buyerTyping', false) is bool) &&
+             (data.get('sellerTyping', false) is bool) &&
+             (data.get('lastSenderId', '') is string);
+    }
+    function isValidMessage(data) {
+      return data.senderId is string && data.senderId == request.auth.uid &&
+             (data.get('text', '') is string && data.text.size() <= 2000) &&
+             (data.get('imageUrl', null) == null || (data.imageUrl is string && data.imageUrl.size() <= 1048576)) &&
+             (data.text.size() > 0 || data.get('imageUrl', null) != null);
+    }
+
+    match /chats/{chatId} {
+      allow read: if isSignedIn() && (
+                      isAdmin() ||
+                      isRoleSeller() ||
+                      (request.auth.uid in resource.data.get('participants', [])) || 
+                      resource.data.get('buyerId', '') == request.auth.uid || 
+                      resource.data.get('sellerId', '') == request.auth.uid
+                    );
+      allow create: if isSignedIn() && 
+                      isValidId(chatId) && 
+                      incoming().get('participants', []) is list && incoming().get('participants', []).size() == 2 &&
+                      (incoming().get('buyerId', '') == request.auth.uid || isAdmin() || isRoleSeller() || incoming().get('sellerId', '') == request.auth.uid) &&
+                      incoming().get('buyerId', '') in incoming().get('participants', []) &&
+                      incoming().get('sellerId', '') in incoming().get('participants', []) &&
+                      incoming().get('buyerName', '') is string &&
+                      incoming().get('unreadCount', 0) == 0 &&
+                      incoming().get('buyerUnreadCount', 0) == 0 &&
+                      incoming().get('sellerUnreadCount', 0) == 0 &&
+                      (incoming().get('buyerTyping', false) == false) &&
+                      (incoming().get('sellerTyping', false) == false) &&
+                      (incoming().get('updatedAt', null) == null || incoming().updatedAt == request.time) &&
+                      (incoming().get('lastMessageAt', null) == null || incoming().lastMessageAt == request.time);
+      allow update: if isSignedIn() && 
+                       ( 
+                         (request.auth.uid in resource.data.get('participants', [])) || 
+                         resource.data.get('buyerId', '') == request.auth.uid || 
+                         resource.data.get('sellerId', '') == request.auth.uid || 
+                         isAdmin() || isRoleSeller()
+                       ) &&
+                       (
+                         // Action: Typing status updates (less strict schema check for typing toggles)
+                         (incoming().diff(existing()).affectedKeys().hasOnly(['buyerTyping', 'sellerTyping'])) ||
+                         // Action: Full chat updates (messages, counts, etc)
+                         (isValidChat(incoming()) && incoming().diff(existing()).affectedKeys().hasOnly(['lastMessage', 'lastMessageAt', 'unreadCount', 'buyerUnreadCount', 'sellerUnreadCount', 'updatedAt', 'buyerName', 'lastSenderId', 'buyerTyping', 'sellerTyping']))
+                       );
+      allow delete: if isSignedIn() && (resource.data.get('sellerId', '') == request.auth.uid || isAdmin() || isRoleSeller());
+
+      match /messages/{messageId} {
+        allow read: if isSignedIn();
+        allow create: if isSignedIn() && isValidMessage(incoming());
+        allow delete: if isAdmin() || (isSignedIn() && resource.data.get('senderId', '') == request.auth.uid);
+      }
+    }
+
+    // 10. Coupons
+    function isValidCoupon(data) {
+      return data.code is string && data.code.size() >= 3 && data.code.size() <= 20 &&
+             data.discountType in ['fixed', 'percentage'] &&
+             data.discountValue is number && data.discountValue > 0 &&
+             (data.discountType == 'percentage' ? data.discountValue <= 100 : true) &&
+             (data.get('minOrderAmount', 0) is number && data.minOrderAmount >= 0) &&
+             data.isActive is bool;
+    }
+
+    match /coupons/{couponId} {
+      allow read: if true;
+      allow create: if isAdmin() && isValidId(couponId) && isValidCoupon(incoming()) && 
+                      incoming().createdAt == request.time;
+      allow update: if isAdmin() && isValidId(couponId) && isValidCoupon(incoming()) &&
+                      incoming().createdAt == existing().createdAt &&
+                      incoming().diff(existing()).affectedKeys().hasOnly(['isActive', 'code', 'discountType', 'discountValue', 'minOrderAmount']);
+      allow delete: if isAdmin() && isValidId(couponId);
+    }
+
+    // 11. Coupon Usages
+    function isValidCouponUsage(data) {
+      return data.userId == request.auth.uid &&
+             data.couponCode is string &&
+             data.usedAt == request.time;
+    }
+
+    match /couponUsages/{usageId} {
+      allow read: if true;
+      allow create: if isSignedIn() && isValidCouponUsage(incoming());
+      allow update, delete: if false;
+    }
+
+    // 12. Banners
+    function isValidBanner(data) {
+      return (data.get('title', '') is string) &&
+             data.imageUrl is string && data.imageUrl.size() <= 1048576 &&
+             (data.get('link', '') is string) &&
+             data.isActive is bool &&
+             data.order is number;
+    }
+    match /banners/{bannerId} {
+      allow read: if true;
+      allow create: if isAdmin() && isValidId(bannerId) && isValidBanner(incoming()) && 
+                      incoming().createdAt == request.time;
+      allow update: if isAdmin() && isValidId(bannerId) && isValidBanner(incoming()) &&
+                      incoming().createdAt == existing().createdAt;
+      allow delete: if isAdmin() && isValidId(bannerId);
+    }
+  }
+}

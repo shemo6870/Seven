@@ -1,0 +1,226 @@
+{
+  "entities": {
+    "Category": {
+      "title": "Category",
+      "description": "Product categories defined by sellers",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Name of the category" },
+        "sellerId": { "type": "string", "description": "UID of the seller" },
+        "order": { "type": "number", "description": "Display order of the category" }
+      },
+      "required": ["name", "sellerId"]
+    },
+    "User": {
+      "title": "User Profile",
+      "description": "User profile information for buyers",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "The full name of the user" },
+        "phoneNumber": { "type": "string", "description": "The verified phone number" },
+        "address": {
+          "type": "object",
+          "properties": {
+            "city": { "type": "string" },
+            "area": { "type": "string" },
+            "street": { "type": "string" },
+            "building": { "type": "string" },
+            "apartment": { "type": "string" }
+          },
+          "required": ["city", "area", "street", "building"]
+        },
+        "role": { "type": "string", "enum": ["buyer", "seller"], "description": "User role" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "When the account was created" }
+      },
+      "required": ["name", "phoneNumber", "role", "createdAt"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "A product available in the store",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "The name of the product" },
+        "price": { "type": "number", "description": "The price of the product" },
+        "quantity": { "type": "number", "description": "The available quantity" },
+        "imageUrl": { "type": "string", "description": "URL of the product image" },
+        "images": { "type": "array", "items": { "type": "string" }, "description": "Additional product image URLs" },
+        "videoUrl": { "type": "string", "description": "URL of the product video (YouTube or direct link)" },
+        "colors": { "type": "array", "items": { "type": "string" }, "description": "Available colors for the product" },
+        "sizes": { "type": "array", "items": { "type": "string" }, "description": "Available sizes for the product" },
+        "description": { "type": "string", "description": "Detailed description of the product" },
+        "category": { "type": "string", "description": "Category of the product" },
+        "isActive": { "type": "boolean", "description": "Whether the product is active and visible to buyers" },
+        "sellerId": { "type": "string", "description": "UID of the seller" },
+        "order": { "type": "number", "description": "Manual display order of the product" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "When the product was added" }
+      },
+      "required": ["name", "price", "quantity", "imageUrl", "sellerId", "createdAt", "category"]
+    },
+    "Cart": {
+      "title": "User Cart",
+      "description": "Shopping cart items for a user",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "items": { "type": "array" }
+      }
+    },
+    "Order": {
+      "title": "Order",
+      "description": "An order placed by a buyer",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "userPhone": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "totalPrice": { "type": "number" },
+        "originalPrice": { "type": "number" },
+        "discount": { "type": "number" },
+        "items": { "type": "array" },
+        "status": { "type": "string", "enum": ["pending", "awaiting_verification", "paid", "delivered", "canceled"] },
+        "paymentMethod": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "receiptUrl": { "type": "string" },
+        "address": {
+          "type": "object",
+          "properties": {
+            "city": { "type": "string" },
+            "area": { "type": "string" },
+            "street": { "type": "string" },
+            "building": { "type": "string" },
+            "apartment": { "type": "string" }
+          }
+        },
+        "rejectionReason": { "type": "string", "description": "Reason for rejecting the order, set by seller" },
+        "sellerDeleted": { "type": "boolean", "description": "True if seller has hidden the order" },
+        "buyerDeleted": { "type": "boolean", "description": "True if buyer has hidden the order" }
+      },
+      "required": ["userId", "totalPrice", "items", "status", "paymentMethod", "createdAt", "address"]
+    },
+    "Review": {
+      "title": "Product Review",
+      "description": "Reviews and ratings for products",
+      "type": "object",
+      "properties": {
+        "productId": { "type": "string" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "rating": { "type": "number", "minimum": 1, "maximum": 5 },
+        "comment": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["productId", "userId", "userName", "rating", "createdAt"]
+    },
+    "Chat": {
+      "title": "Chat",
+      "description": "A conversation between a buyer and a seller",
+      "type": "object",
+      "properties": {
+        "participants": { "type": "array", "items": { "type": "string" } },
+        "buyerId": { "type": "string" },
+        "buyerName": { "type": "string" },
+        "sellerId": { "type": "string" },
+        "lastMessage": { "type": "string" },
+        "lastMessageAt": { "type": "string", "format": "date-time" },
+        "unreadCount": { "type": "number" },
+        "buyerUnreadCount": { "type": "number" },
+        "sellerUnreadCount": { "type": "number" },
+        "buyerTyping": { "type": "boolean", "description": "Whether the buyer is currently typing" },
+        "sellerTyping": { "type": "boolean", "description": "Whether the seller is currently typing" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["participants", "buyerId", "sellerId"]
+    },
+    "Message": {
+      "title": "Message",
+      "description": "A single message in a chat",
+      "type": "object",
+      "properties": {
+        "senderId": { "type": "string" },
+        "text": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["senderId", "text", "createdAt"]
+    },
+    "Coupon": {
+      "title": "Coupon",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string" },
+        "discountType": { "type": "string", "enum": ["fixed", "percentage"] },
+        "discountValue": { "type": "number" },
+        "minOrderAmount": { "type": "number" },
+        "isActive": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["code", "discountType", "discountValue", "isActive", "createdAt"]
+    },
+    "CouponUsage": {
+      "title": "Coupon Usage",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "couponCode": { "type": "string" },
+        "usedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "couponCode", "usedAt"]
+    },
+    "Banner": {
+      "title": "Banner",
+      "description": "Marketing banners displayed on the home page",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "description": "Title of the banner" },
+        "imageUrl": { "type": "string", "description": "URL of the banner image" },
+        "link": { "type": "string", "description": "Optional link where the banner leads" },
+        "isActive": { "type": "boolean", "description": "Whether the banner is visible" },
+        "order": { "type": "number", "description": "Display order" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["imageUrl", "isActive", "order", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/banners/{bannerId}": {
+      "schema": "Banner",
+      "description": "Marketing banners for the top of the home page"
+    },
+    "/couponUsages/{usageId}": {
+      "schema": "CouponUsage",
+      "description": "Tracks which coupons have been used by which users"
+    },
+    "/coupons/{couponId}": {
+      "schema": "Coupon",
+      "description": "Store discount coupons set by admin"
+    },
+    "users": {
+      "schema": "User",
+      "description": "Collection of user profiles"
+    },
+    "carts": {
+      "schema": "Cart",
+      "description": "Collection of user shopping carts"
+    },
+    "categories": {
+      "schema": "Category",
+      "description": "Collection of categories"
+    },
+    "products": {
+      "schema": "Product",
+      "description": "Collection of all products"
+    },
+    "reviews": {
+      "schema": "Review",
+      "description": "Collection of all product reviews"
+    },
+    "chats": {
+      "schema": "Chat",
+      "description": "Collection of all chats"
+    },
+    "chats/{chatId}/messages": {
+      "schema": "Message",
+      "description": "Subcollection of messages within a chat"
+    }
+  }
+}
